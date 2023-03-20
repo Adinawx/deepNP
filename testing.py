@@ -13,38 +13,26 @@ import matplotlib as mpl
 mpl.use('TkAgg')
 
 
-def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_type='burst', train_test_flag=1,
-                   erasures_param=[0, 1, 0.01, 0.25], foldername=None, predictor=None):
+def train_and_test(rtt=8, T=50, epochs=5, print_flag=False, erasures_type='burst', erasures_param=None,
+                    pretrained_model_filename=None, results_foldername=None, state_flag=1):
     # Inputs
-    if predictor is None:  # training
-        predictor = dnn.DeepNp(input_size=1, hidden_size=4, rtt=2 * rtt)
+    if erasures_param is None:
+        erasures_param = [0, 1, 0.01, 0.25]
 
-        # warm restart:
-        # warm_start_filename = r'C:\Users\adina\Research\deepNP_torch_results\deepNP_RTT=8_in4_out8.pth'
-        # warm_start_filename = r'C:\Users\adina\Research\deepNP_torch_results\deepNP_8in_16out.pth'
-        # warm_start_filename = r'C:\Users\adina\Research\combine_ac_dnn\results\predictor_rtt=8_T=5000_ep=25_lr=0.0001_144035.pth'
-        # warm_start_filename = r'C:\Users\adina\Research\combine_ac_dnn\results\predictor_rtt=8_T=5000_ep=25_lr=0.0001_153013.pth'
-
-        warm_start_filename = r'C:\Users\adina\Research\combine_ac_dnn\results\predictor_rtt=8_T=5000_ep=20_lr=0.0001_150911.pth'
-
+    # Create new model
+    predictor = dnn.DeepNp(input_size=1, hidden_size=4, rtt=2 * rtt)
+    # Warm restart:
+    if pretrained_model_filename is not None:
         pretrained_model = dnn.DeepNp(input_size=1, hidden_size=4, rtt=2 * rtt)
-        pretrained_model.load_state_dict(torch.load(warm_start_filename))
+        pretrained_model.load_state_dict(torch.load(pretrained_model_filename))
         state_dict = pretrained_model.state_dict()
         predictor.load_state_dict(state_dict, strict=False)
+    predictor.eval()
+    seed = 11
+    titl = 'Test'
+    print("-----------Test-----------")
 
-        optimizer = optim.Adam(predictor.parameters(), lr=lr)
-        train_test_flag = 1
-        seed = 7
-        titl = 'Train'
-        print("-----------Training-----------")
-    else:  # test
-        predictor.eval()
-        train_test_flag = 0
-        seed = 11
-        titl = 'Test'
-        print("-----------Test-----------")
     memory_size = rtt  # m in the paper
-    batch_size = 20  # only determines when backprop happens: t%batch_size==0
     lam = 0.5
 
     # Generate Erasures Series. 0=erasure, 1=success
@@ -53,16 +41,6 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
     if T * epochs >= N:
         print("Error: N too small")
         return 1
-
-    # Set train data:
-    if train_test_flag == 1:  # Train - same series for each epoch
-        # Add artificial ones at the beginning (only affect the predictor)
-        erasures_vec_ep = erasures_vec[:T]
-        erasures_vec_delayed = torch.ones([T + memory_size + 2 * rtt])
-        erasures_vec_delayed[memory_size + 2 * rtt:] = erasures_vec[:T]
-    # D = create_dataset.DatasetFromVec(erasures_vec=erasures_vec, memory_size=memory_size, rtt=2 * rtt)
-    # x_true = D.x
-    # y_true = D.y
 
     # Initialize history vectors
     d_max = torch.zeros([epochs])
@@ -74,8 +52,8 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
     delta_hist = torch.zeros([epochs, T])
     loss_hist = torch.zeros([epochs, T])
     sys = ac_protocol.Sys()
-
     w_n = torch.log(torch.arange(2 * rtt + 1, 1, -1))
+
     # Train/Test
     for ep in range(epochs):
         start = time.time()
@@ -83,17 +61,13 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
 
         # 1. reset variables
         # Test-Data reset
-        if train_test_flag == 0:  # Test - change erasure series each epoch
-            erasures_vec_ep = erasures_vec[ep * T: (ep + 1) * T]  # random case
-            # erasures_vec_ep = torch.ones(T)  # No erasures test case
-            # erasures_vec_ep = torch.zeros(T)  # All erasures test case
+        erasures_vec_ep = erasures_vec[ep * T: (ep + 1) * T]  # random case
+        # erasures_vec_ep = torch.ones(T)  # No erasures test case
+        # erasures_vec_ep = torch.zeros(T)  # All erasures test case
 
-            # Add artificial ones at the beginning (only affect the predictor)
-            # erasures_vec_delayed = torch.ones([T + memory_size + 2 * rtt])
-            # erasures_vec_delayed[memory_size + 2 * rtt:] = erasures_vec_ep[:T]
-            # FIXED:?
-            erasures_vec_delayed = torch.ones([T + memory_size + 2 * rtt])
-            erasures_vec_delayed[memory_size + rtt: -rtt] = erasures_vec_ep[:T]
+        # Add artificial ones at the beginning (only affect the predictor)
+        erasures_vec_delayed = torch.ones([T + memory_size + 2 * rtt])
+        erasures_vec_delayed[memory_size + rtt: -rtt] = erasures_vec_ep[:T]
 
         # System Reset
         sys.reset(T=T, forward_tt=int(rtt / 2), backward_tt=int(rtt / 2),
@@ -114,13 +88,9 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
             cur_feedback = torch.zeros([1, memory_size, 1])
             cur_feedback[0, :, 0] = erasures_vec_delayed[t: t + memory_size]
             pred = predictor(cur_feedback)
-            sys.set_pred(torch.round(pred))
 
-            if train_test_flag == 0:  # Test
-                # GINI CHECK
-                # pred = torch.unsqueeze(y, dim=0)
-                # sys.set_pred(pred)
-
+            # Detect States
+            if state_flag == 1:
                 new_sum = torch.sum(torch.round(pred.detach()))
                 if new_sum > old_sum or (new_sum == old_sum and state_ind == 1):
                     state_vec_new[0, 0] = 1
@@ -137,24 +107,22 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
                 state_vec = state_vec_new.clone()
                 old_sum = new_sum
                 sys.set_pred(state_vec)
-
             else:
+                # GINI CHECK
+                # sys.set_pred(torch.unsqueeze(y, dim=0))
+                # fb -> nan (problematic)
+                # sys.set_pred(cur_feedback[:,:, 0])
+                # Hard pred:
+                # sys.set_pred(torch.round(pred))
+                # Soft pred:
                 sys.set_pred(pred)
-                mse_cum += torch.norm(pred - y) ** 2 + torch.mean(
-                    torch.mul(w_n, -y * torch.log2(pred) - (1 - y) * torch.log2(pred)))
 
+            mse_cum += torch.norm(pred - y) ** 2 + torch.mean(
+                torch.mul(w_n, -y * torch.log2(pred) - (1 - y) * torch.log2(pred)))
             delta_t = sys.protocol_step()
             loss = delta_t ** 2 + lam * mse_cum
             # + torch.norm(pred - y) ** 2 \
             # + torch.mean(torch.mul(w_n, -y * torch.log2(pred) - (1 - y) * torch.log2(pred)))
-
-            loss_txt = f'delta_t ** 2 + lam * mse_cum, lam={lam}'  # to save into the redma file!!
-
-            if train_test_flag == 1 and t % batch_size == 0:  # Training - backprop
-                optimizer.zero_grad()
-                loss.backward(retain_graph=True)
-                optimizer.step()
-                mse_cum = 0
 
             if t % 500 == 0:
                 print(f't={t}: loss={loss.detach()}')
@@ -162,7 +130,7 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
             # Save History
             y_true[ep, t, :] = y
             y_pred[ep, t, :] = pred.detach()
-            y_state[ep, t, :] = state_vec
+            # y_state[ep, t, :] = state_vec
             delta_hist[ep, t] = delta_t.detach().item()
             loss_hist[ep, t] = loss.detach().item()
 
@@ -189,10 +157,9 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
 
     a = 5
     # print history:
-
     plot_ep_num = 0
     plt.figure(figsize=(15, 3))
-    plt.plot(delta_hist[plot_ep_num, :].T)
+    plt.plot(delta_hist[plot_ep_num, :])
     plt.grid()
     plt.title(f"{titl}, delta_t for different epochs")
     plt.xlabel("Time Slots")
@@ -219,7 +186,6 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
     # plt.show()
 
     # MSE check:
-    # mse_specific = torch.mean(torch.linalg.matrix_norm(y_true - y_pred, dim=[1,2])**2) / (T*epochs)
     y_pred_hard = torch.round(y_pred)
     sum_true = torch.sum(1 - y_true, dim=2)
     sum_pred = torch.sum(1 - y_pred_hard, dim=2)
@@ -239,76 +205,7 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
     plt.draw()
     # plt.show()
 
-    era_in_rtt = sum_pred[-1, :]
-    diff_vec = torch.diff(era_in_rtt)
-    state_vec = torch.zeros(T)
-    # state_vec[torch.where(era_in_rtt > 0)] = 16
-
-    state_len = 0
-    for at in range(T - 1):
-        if diff_vec[at] > 0:
-            state_len = 1
-        if diff_vec[at] < 0:
-            state_len = 0
-
-        if state_len == 1:
-            if state_vec[at - 1] < 2 * rtt:
-                state_vec[at] = state_vec[at - 1] + 1
-            else:
-                state_vec[at] = state_vec[at - 1]
-        else:
-            if state_vec[at - 1] > 0:
-                state_vec[at] = state_vec[at - 1] - 1
-            else:
-                state_vec[at] = state_vec[at - 1]
-
-    plt.figure(figsize=(15, 3))
-    plt.plot(sum_true[plot_ep_num, :].T, label="sum true")
-    plt.plot(state_vec)
-    plt.xlabel("Time Slots")
-    plt.grid()
-    plt.draw()
-
-    mean_Dmax = torch.mean(d_max)
-    mean_Dmean = torch.mean(d_mean)
-    mean_tau = torch.mean(tau)
-
-    print(f"{titl}, Dmax, mean={mean_Dmax:.2f}")
-    print(f"{titl}, Dmean, mean={mean_Dmean:.2f}")
-    print(f"{titl}, Throughput, mean={mean_tau:.2f}")
-
-    # %% Save configuration
-    if train_test_flag == 1:  ## save training
-        # save model:
-        model_filename = r"{}\predictor_rtt={}_T={}_ep={}_lr={}.pth" \
-            .format(foldername, rtt, T, epochs, lr)
-        torch.save(predictor.state_dict(), model_filename)
-
-        # save info
-        f = open(f"{foldername}\\readme.txt", "w")
-        info = f"ep={epochs}, T={T}, lr={lr}, rtt={rtt}, seed={seed} \n" \
-               f"warm_start={warm_start_filename} \n" \
-               f"loss={loss_txt} \n" \
-               f"Erasures model:{erasures_type}, [eps_G, eps_B, p_b2g, p_g2b/eps]={erasures_param}"
-        f.write(info)
-        f.close()
-
-        # save history:
-        varname = 'y_true'
-        torch.save(y_true, r"{}\{}".format(foldername, varname))
-        varname = 'y_pred'
-        torch.save(y_pred, r"{}\{}".format(foldername, varname))
-        varname = 'delta_hist'
-        torch.save(delta_hist, r"{}\{}".format(foldername, varname))
-        varname = 'loss_hist'
-        torch.save(loss_hist, r"{}\{}".format(foldername, varname))
-        varname = 'd_max'
-        torch.save(d_max, r"{}\{}".format(foldername, varname))
-        varname = 'd_mean'
-        torch.save(d_mean, r"{}\{}".format(foldername, varname))
-        varname = 'tau'
-        torch.save(tau, r"{}\{}".format(foldername, varname))
-
+    # plt.show()
     # measures history:
     # mean_Dmax = torch.mean(d_max)
     # plt.figure(figsize=(15, 3))
@@ -341,10 +238,50 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
     # plt.show()
 
     plt.show()
+    mean_Dmax = torch.mean(d_max)
+    mean_Dmean = torch.mean(d_mean)
+    mean_tau = torch.mean(tau)
+
+    print(f"{titl}, Dmax, mean={mean_Dmax:.2f}")
+    print(f"{titl}, Dmean, mean={mean_Dmean:.2f}")
+    print(f"{titl}, Throughput, mean={mean_tau:.2f}")
+
+    a=5
+
+    # %% Save configuration
+    model_name = 'test'
+    free_txt = "Without any learning"
+    info = f"reps={epochs}, T={T}, rtt={rtt}, seed={seed} \n" \
+           f"warm_start={pretrained_model_filename} \n" \
+           f"Erasures model:{erasures_type}, [eps_G, eps_B, p_b2g, p_g2b/eps]={erasures_param}\n" \
+           f"\nResults:\nDmax={mean_Dmax:.2f}\nDmean={mean_Dmean:.2f}\nThroughput={mean_tau:.2f}\n\n"\
+           f"{free_txt}"
+
+    # save model:
+    model_filename = r"{}\{}.pth".format(results_foldername, model_name)
+    torch.save(predictor.state_dict(), model_filename)
+
+    # save info
+    f = open(f"{results_foldername}\\readme.txt", "w")
+    f.write(info)
+    f.close()
+
+    # save history:
+    varname = 'y_true'
+    torch.save(y_true, r"{}\{}".format(results_foldername, varname))
+    varname = 'y_pred'
+    torch.save(y_pred, r"{}\{}".format(results_foldername, varname))
+    varname = 'y_state'
+    torch.save(y_state, r"{}\{}".format(results_foldername, varname))
+    varname = 'delta_hist'
+    torch.save(delta_hist, r"{}\{}".format(results_foldername, varname))
+    varname = 'loss_hist'
+    torch.save(loss_hist, r"{}\{}".format(results_foldername, varname))
+    varname = 'd_max'
+    torch.save(d_max, r"{}\{}".format(results_foldername, varname))
+    varname = 'd_mean'
+    torch.save(d_mean, r"{}\{}".format(results_foldername, varname))
+    varname = 'tau'
+    torch.save(tau, r"{}\{}".format(results_foldername, varname))
 
     a = 5
-
-    if train_test_flag == 1:
-        return predictor
-    else:
-        return 0

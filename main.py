@@ -1,100 +1,93 @@
 import training
-import torch
-import dnn
 from datetime import datetime
 import os
-import test_states
+import testing
+import plot_model
 
 
-def load_a_model(folder=None):
-    results_folder = r"/home/adina/research/Results/"
-
-    if folder is not None:
-        # Crate a new folder
-        now = datetime.now().strftime("%H%M%S")
-        train_folder = r"{}\predictor_e2e_{}\Train".format(results_folder, now)
-        os.makedirs(train_folder)
-
-    # Load:
-
-
-def train(erasures_type, erasures_param, rtt, T, epochs, print_flag, lr, warm_start_filename=None):
-    # Create new model
-    predictor = dnn.DeepNp(input_size=1, hidden_size=4, rtt=2 * rtt)
-
-    # Warm restart:
-    if warm_start_filename is not None:
-        pretrained_model = dnn.DeepNp(input_size=1, hidden_size=4, rtt=2 * rtt)
-        pretrained_model.load_state_dict(torch.load(warm_start_filename))
-        state_dict = pretrained_model.state_dict()
-        predictor.load_state_dict(state_dict, strict=False)
+def train(all_results_folder, erasures_type, erasures_param, rtt, T, epochs, print_flag, lr, warm_start_filename=None):
+    # Crate a new folder
+    now = datetime.now().strftime("%H%M%S")
+    res_folder = r"{}\predictor_e2e_{}".format(all_results_folder, now)
+    train_folder = r"{}\Train".format(res_folder)
+    os.makedirs(train_folder)
 
     # Train:
-    predictor = training.train_and_test(rtt=rtt, T=T, epochs=epochs, lr=lr,
+    predictor = training.train_and_test(rtt=rtt, T=T, epochs=epochs, lr=lr, print_flag=print_flag,
                                         erasures_type=erasures_type, erasures_param=erasures_param,
-                                        train_test_flag=1,
-                                        foldername=train_folder,
-                                        print_flag=print_flag, predictor=predictor)
+                                        pretrained_model_filename=warm_start_filename,
+                                        results_foldername=train_folder)
+    a = 5
+    return predictor, res_folder
 
-    return results_folder, predictor
 
-
-def test(model_folder, predictor, erasures_type, erasures_param, rtt, T, reps, print_flag):
+def test(model_folder, erasures_type, erasures_param, rtt, T, reps, print_flag):
     # New folder for test results
     now = datetime.now().strftime("%H%M%S")
     results_folder = r"{}\Test\{}".format(model_folder, now)
     os.makedirs(results_folder)
 
-    # Load predictor:
-    if predictor is None:
-        results_folder = ""
-        model_path = ""
-        predictor = dnn.DeepNp(input_size=1, hidden_size=4, rtt=2 * rtt)
-        predictor.load_state_dict(torch.load(model_path))
+    # Train folder
+    pretrained_model_filename = r"{}\Train\train.pth".format(model_folder)
 
     # Test:
-    # training.train_and_test(rtt=rtt, T=T, epochs=epochs,
-    #                                erasures_type=erasures_type, erasures_param=erasures_param,
-    #                                train_test_flag = 0,
-    #                                foldername=results_folder,
-    #                                print_flag=print_flag,
-    #                                predictor=predictor)
-    test_states.train_and_test(rtt=rtt, T=T, epochs=reps,
-                               erasures_type=erasures_type, erasures_param=erasures_param,
-                               train_test_flag=0,
-                               foldername=results_folder,
-                               print_flag=print_flag,
-                               predictor=predictor)
+    testing.train_and_test(rtt=rtt, T=T, epochs=reps, print_flag=print_flag,
+                           erasures_type=erasures_type, erasures_param=erasures_param,
+                           pretrained_model_filename=pretrained_model_filename,
+                           results_foldername=results_folder)
+
+    a = 5
 
 
 def run():
+    # General Inputs:
+    all_results_folder = r"C:\Users\adina\Technion\Research\Results\ac_dnp_results"
     rtt = 8
 
-    # Train inputs:
-    erasures_type = 'arb'
-    # erasures_param = [0.1, 0.9, 0.1, 0.1]
-    erasures_type = 'burst'
-    erasures_param = [0, 1, 0.01, 0.25]
-    T = 5000
-    epochs = 20
+    # %% Training:
+
+    # inputs:
+    T = 1000
+    epochs = 3
     print_flag = False
     lr = 1e-4
-
     warm_start_filename = None
-
-    results_folder, predictor = train(erasures_type, erasures_param, rtt, T, epochs, print_flag, lr,
-                                      warm_start_filename)
-
-    # Test inputs:
     erasures_type = 'arb'
+    erasures_param = [0.1, 0.9, 0.1, 0.1]
+    # erasures_type = 'burst'
+    # erasures_param = [0, 1, 0.01, 0.25]
+
+    train_folder, predictor = train(all_results_folder, erasures_type, erasures_param, rtt, T, epochs, print_flag, lr,
+                                    warm_start_filename)
+
+    a = 5
+    # %% Test:
+
+    # inputs:
+    T = 1000
+    reps = 3
+    print_flag = False
+    # erasures_type = 'arb'
     # erasures_param = [0.1, 0.9, 0.1, 0.1]
     erasures_type = 'burst'
     erasures_param = [0, 1, 0.01, 0.25]
-    T = 2300
-    reps = 20
-    print_flag = False
+    train_folder = r"C:\Users\adina\Technion\Research\Results\ac_dnp_results\warm_restart_rtt=8"  # manually choose trained model
 
-    test(results_folder, predictor, erasures_type, erasures_param, rtt, T, reps, print_flag)
+    test(train_folder, erasures_type, erasures_param, rtt, T, reps, print_flag)
+
+    a = 5
+
+    # %% Load and plot:
+    # Inputs:
+    results_foldername = r"C:\Users\adina\Technion\Research\Results\ac_dnp_results\predictor_e2e_134425\Train"
+    titl = "train"
+    delta_epoch = 0
+    sum_epoch = 0
+    sum_ind = -1
+    plot_model.plot_model(results_foldername=results_foldername, titl=titl, delta_epoch=delta_epoch,
+                          sum_epoch=sum_epoch, sum_ind=sum_ind)
+
+    a = 5
 
 
 def main():
