@@ -15,6 +15,8 @@ mpl.use('TkAgg')
 
 def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_type='burst', erasures_param=None,
                    pretrained_model_filename=None, results_foldername=None):
+
+    device = ("cuda:0" if torch.cuda.is_available() else "cpu")
     # Inputs
     if erasures_param is None:
         erasures_param = [0, 1, 0.01, 0.25]
@@ -27,11 +29,12 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
         pretrained_model.load_state_dict(torch.load(pretrained_model_filename))
         state_dict = pretrained_model.state_dict()
         predictor.load_state_dict(state_dict, strict=False)
+    predictor.to(device)
     optimizer = optim.Adam(predictor.parameters(), lr=lr)
+
     seed = 7
     titl = 'Train'
     print("-----------Training-----------")
-
     memory_size = rtt  # m in the paper
     batch_size = 20  # only determines when backprop happens: t%batch_size==0
     lam = 0.5
@@ -43,23 +46,27 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
         print("Error: N too small")
         return 1
 
+    # move to GPU
+    erasures_vec = erasures_vec.cuda()
+
     # Set train data:
     # Add artificial ones at the beginning (only affect the predictor)
     erasures_vec_ep = erasures_vec[:T]
-    erasures_vec_delayed = torch.ones([T + memory_size + 2 * rtt])
+    erasures_vec_delayed = torch.ones([T + memory_size + 2 * rtt]).cuda()
     erasures_vec_delayed[memory_size + rtt: -rtt] = erasures_vec[:T]
 
     # Initialize history vectors
-    d_max = torch.zeros([epochs])
-    d_mean = torch.zeros([epochs])
-    tau = torch.zeros([epochs])
-    y_pred = torch.zeros([epochs, T, 2 * rtt])
-    y_true = torch.zeros([epochs, T, 2 * rtt])
-    delta_hist = torch.zeros([epochs, T])
-    loss_hist = torch.zeros([epochs, T])
+    d_max = torch.zeros([epochs], device=device)
+    d_mean = torch.zeros([epochs], device=device)
+    tau = torch.zeros([epochs], device=device)
+    y_pred = torch.zeros([epochs, T, 2 * rtt], device=device)
+    y_true = torch.zeros([epochs, T, 2 * rtt], device=device)
+    delta_hist = torch.zeros([epochs, T], device=device)
+    loss_hist = torch.zeros([epochs, T], device=device)
+    pred = torch.zeros([1, 2*rtt], device=device)
     sys = ac_protocol.Sys()
 
-    w_n = torch.log(torch.arange(2 * rtt + 1, 1, -1))
+    w_n = torch.log(torch.arange(2 * rtt + 1, 1, -1)).cuda()
     # Train/Test
     for ep in range(epochs):
         start = time.time()
@@ -78,9 +85,9 @@ def train_and_test(rtt=8, T=50, epochs=5, lr=1e-4, print_flag=False, erasures_ty
             y = erasures_vec_delayed[t + memory_size: t + memory_size + 2 * rtt]
 
             # Prediction
-            cur_feedback = torch.zeros([1, memory_size, 1])
+            cur_feedback = torch.zeros([1, memory_size, 1], device=device)
             cur_feedback[0, :, 0] = erasures_vec_delayed[t: t + memory_size]
-            pred = predictor(cur_feedback)
+            pred = predictor(cur_feedback).cuda()
 
             # GINI CHECK
             # sys.set_pred(torch.unsqueeze(y, dim=0))

@@ -8,8 +8,8 @@ import create_dataset
 import dnn
 import time
 import os
-import matplotlib as mpl
 
+import matplotlib as mpl
 mpl.use('TkAgg')
 
 
@@ -28,7 +28,7 @@ def train_and_test(rtt=8, T=50, epochs=5, print_flag=False, erasures_type='burst
         state_dict = pretrained_model.state_dict()
         predictor.load_state_dict(state_dict, strict=False)
     predictor.eval()
-    seed = 11
+    seed = 13
     titl = 'Test'
     print("-----------Test-----------")
 
@@ -130,7 +130,7 @@ def train_and_test(rtt=8, T=50, epochs=5, print_flag=False, erasures_type='burst
             # Save History
             y_true[ep, t, :] = y
             y_pred[ep, t, :] = pred.detach()
-            # y_state[ep, t, :] = state_vec
+            y_state[ep, t, :] = state_vec
             delta_hist[ep, t] = delta_t.detach().item()
             loss_hist[ep, t] = loss.detach().item()
 
@@ -167,7 +167,6 @@ def train_and_test(rtt=8, T=50, epochs=5, print_flag=False, erasures_type='burst
     # plt.show()
 
     mean_loss = torch.mean(loss_hist, dim=1)  # mean over time in each epoch
-    # final_loss_hist = torch.div(torch.cumsum(mean_loss, 0), torch.arange(1, epochs + 1))
     plt.figure(figsize=(15, 3))
     plt.plot(mean_loss)
     plt.title(f"{titl}, Mean Loss (in each epoch)")
@@ -194,10 +193,10 @@ def train_and_test(rtt=8, T=50, epochs=5, print_flag=False, erasures_type='burst
     t_ind = -1
     plot_ep_num = 0
     plt.figure(figsize=(15, 3))
-    plt.plot(sum_true[plot_ep_num, :t_ind].T, label="sum true")
+    plt.plot(sum_true[plot_ep_num, :t_ind], label="sum true")
     # plt.gca().set_prop_cycle(None)
-    plt.plot(sum_pred[plot_ep_num, :t_ind].T, label="sum pred")#, linestyle='--')
-    plt.plot(sum_state[plot_ep_num, :t_ind].T, label="sum pred")#, linestyle='--')
+    plt.plot(sum_pred[plot_ep_num, :t_ind], label="sum pred")#, linestyle='--')
+    plt.plot(sum_state[plot_ep_num, :t_ind], label="sum pred")#, linestyle='--')
     plt.title(f"{titl}, Erasures num in RTT, ep = {plot_ep_num}")
     plt.xlabel("Time Slots")
     plt.legend()
@@ -250,7 +249,7 @@ def train_and_test(rtt=8, T=50, epochs=5, print_flag=False, erasures_type='burst
 
     # %% Save configuration
     model_name = 'test'
-    free_txt = "Without any learning"
+    free_txt = "Test on warm-restart"
     info = f"reps={epochs}, T={T}, rtt={rtt}, seed={seed} \n" \
            f"warm_start={pretrained_model_filename} \n" \
            f"Erasures model:{erasures_type}, [eps_G, eps_B, p_b2g, p_g2b/eps]={erasures_param}\n" \
