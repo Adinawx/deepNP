@@ -73,7 +73,7 @@ class ModelTH(ModelBase):
         self.loss_hist_train = torch.zeros(epochs, device=self.device)
         self.loss_hist_val = torch.zeros(epochs)
         th_update = self.cfg.data.future - self.cfg.protocol.rtt
-        alpha = 1 # regularization parameter
+        alpha = 1  # regularization parameter
 
         # Epoch
         for e in range(epochs):

@@ -88,7 +88,7 @@ class Data:
         mpl.rcParams['figure.figsize'] = (10, 6)
         fig, (ax1, ax2) = plt.subplots(2, 1)
 
-        r_plt = self.cfg.Inputs.r_plt
+        r_plt = self.cfg.data.r_plt
         # Full
         ax1.plot(t_vec, sinr_vec[r_plt, :], marker='o', label='sinr')
         ax1.set_ylabel("sinr [dB]")
@@ -118,7 +118,7 @@ class Data:
         mpl.rcParams['figure.figsize'] = (10, 6)
         fig, (ax1, ax2) = plt.subplots(2, 1)
 
-        r_plt = self.cfg.Inputs.r_plt
+        r_plt = self.cfg.data.r_plt
         # Full
         ax1.plot(t_vec, erasure_vec[r_plt, :], marker='o', label='erasures')
         ax1.set_ylabel("erasures [1=Success 0=Erasure]")
