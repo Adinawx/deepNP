@@ -52,7 +52,7 @@ class Sys:
             # Print status:
             if self.print_flag:
                 print(f"t={self.t},"
-                      f"eps0={self.enc.get_pred_0():.2f}, eps1={self.enc.get_pred_1():.2f}, "
+                      f"eps={self.enc.get_pred_0():.2f}, "
                       f"md={self.enc.missing_dof}, cnew={self.enc.c_t_new}, "
                       f"ad={self.enc.added_dof}, csame={self.enc.c_t_same}, "
                       f"fecnum={self.enc.fec_num:.2f}, "

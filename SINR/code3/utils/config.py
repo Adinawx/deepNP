@@ -7,8 +7,7 @@ import json
 class Config:
     """Config class which contains data, train and model_base hyperparameters"""
 
-    def __init__(self, Inputs, data, train, model, protocol):
-        self.Inputs = Inputs
+    def __init__(self, data, train, model, protocol):
         self.data = data
         self.train = train
         self.model = model
@@ -18,7 +17,7 @@ class Config:
     def from_json(cls, cfg):
         """Creates config from json"""
         params = json.loads(json.dumps(cfg), object_hook=HelperObject)
-        return cls(params.Inputs, params.data, params.train, params.model_base, params.protocol)
+        return cls(params.data, params.train, params.model_base, params.protocol)
 
 
 

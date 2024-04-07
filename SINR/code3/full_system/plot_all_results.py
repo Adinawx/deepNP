@@ -88,18 +88,19 @@ class PlotAll:
     def run(self):
 
         # Inputs:
-        self.model_folder = "Rate_Table_1_oneParCheck"
-        self.gini_folder = 'stat_test_th=5_rep=50'
-        self.stat_folder = 'stat_test_th=5_rep=50'
+        self.model_folder = ""
+        self.gini_folder = self.cfg.model.eval_folder
+        self.stat_folder = self.cfg.model.eval_folder
 
-        self.rtt_list = [10, 20, 30]
-        self.scenario_list = ['SLOW']
+        self.rtt_list = [10, 20, 30, 40, 50]
+        self.scenario_list = ['SLOW']  # 'SLOW', 'MID', 'FAST'
         self.pred_list = ['GINI', 'STAT']
         self.model_list = ['Par']
         self.loss_list = ['M']
+
+        # initialize
         th_update_rate = (self.cfg.data.future - self.cfg.protocol.rtt) / self.cfg.protocol.rtt
         self.future_values = [int(rtt + th_update_rate * rtt) for rtt in self.rtt_list]
-
         self.initialize()
 
         self.load_all_results()
@@ -117,7 +118,7 @@ class PlotAll:
         pred_idx = self.pred_list.index(pred_type)
 
         if pred_type == 'MODEL':
-            folder = f'/home/adina/research/ac_dnp/SINR/Model/{self.model_folder}' \
+            folder = f'{self.cfg.model.results_folder}/results/{self.model_folder}' \
                      f'/RTT={rtt}/{scenario.lower()}/{pred_type.lower()}/' \
                      f'RTT={rtt}_{scenario.lower()}_{model_type}_{loss_type}_test'
             name = f'{pred_type.lower()}_{model_type}_{loss_type}'
@@ -125,7 +126,7 @@ class PlotAll:
             loss_idx = self.loss_list.index(loss_type)
 
         elif pred_type == 'STAT':
-            folder = f'/home/adina/research/ac_dnp/SINR/Model/{self.stat_folder}' \
+            folder = f'{self.cfg.model.results_folder}/results/{self.stat_folder}' \
                      f'/RTT={rtt}/{scenario.lower()}/' \
                      f'RTT={rtt}_{scenario.lower()}_{pred_type.lower()}'
             name = f'{pred_type.lower()}'
@@ -133,7 +134,7 @@ class PlotAll:
             loss_idx = 0
 
         else:  # gini
-            folder = f'/home/adina/research/ac_dnp/SINR/Model/{self.gini_folder}' \
+            folder = f'{self.cfg.model.results_folder}/results/{self.gini_folder}' \
                      f'/RTT={rtt}/{scenario.lower()}/' \
                      f'RTT={rtt}_{scenario.lower()}_{pred_type.lower()}'
             name = f'{pred_type.lower()}'
