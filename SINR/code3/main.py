@@ -14,13 +14,13 @@ def run():
     cfg = Config.from_json(CFG)
 
     # Run Inputs:
-    run_flag = 'plot'  # 'plot', 'train', 'test', 'train_and_test'
+    run_flag = 'test'  # 'plot', 'train', 'test', 'train_and_test'
 
-    all_results_folder = '/home/adina/research/ac_dnp/SINR/'
+    all_results_folder = '/home/adina/research/ac_dnp/SINR'
     eval_foldername = "protocol_run"  # Models' foldername For Plot and Test.
     new_foldername = "protocol_run"  # Must change for each run
 
-    rtt_list = [10, 20, 30, 40, 50]  # [time-steps]
+    rtt_list = [10]  # [time-steps]
     scenario_list = ['slow']  # 'slow', 'mid', 'fast'
     pred_type_list = ['gini', 'stat']  # 'gini', 'stat', 'model'
     model_type_list = ['TH']  # 'TH', 'Par', 'Bin'
@@ -37,10 +37,11 @@ def run():
     rep = 10  # Test repetitions number. Must be <= 50 (number of files).
 
     # Learning Parameters:
-    epochs = 25
+    epochs = 30
     batch_factor = 1
 
     # SINR Thresholds and Rates:
+    smooth_factor = 0.7  # Smooth factor for the rate function
 
     # Option 0: Single
     sinr_th_list = [5]
@@ -75,6 +76,7 @@ def run():
                 cfg.train.batch_size = batch_factor
 
                 cfg.model.results_folder = all_results_folder
+                cfg.model.smooth_factor = smooth_factor
 
                 print(f"RUNNING: {run_flag.upper()}")
                 print(f"RTT={rtt}, Scenario={scenario}, pred_type={pred_type}")
@@ -84,6 +86,7 @@ def run():
                     if pred_type == 'gini' or pred_type == 'stat':
                         # Print error and move to the next if
                         print("ERROR: GINI and STAT do not train")
+                        return
                     else:
                         for model_type in model_type_list:
                             for loss_type in loss_type_list:
@@ -99,8 +102,9 @@ def run():
                                 create_folder_and_save_fig(cfg)
 
                                 print("Model Train...")
-                                stdoutOrigin = sys.stdout
-                                sys.stdout = open(f"{cfg.model.new_folder}/log_{pred_type}.txt", "w")
+                                if not print_out_flag:
+                                    stdoutOrigin = sys.stdout
+                                    sys.stdout = open(f"{cfg.model.new_folder}/log_{pred_type}.txt", "w")
 
                                 if model_type == 'TH':
                                     model = ModelTH(cfg)
@@ -112,8 +116,9 @@ def run():
                                     model = ModelBin(cfg)
                                     model.run()
 
-                                sys.stdout.close()
-                                sys.stdout = stdoutOrigin
+                                if not print_out_flag:
+                                    sys.stdout.close()
+                                    sys.stdout = stdoutOrigin
                                 print("done")
 
                 ################################### Option 2: Test a trained model  ############################################
@@ -162,6 +167,8 @@ def run():
                             torch.save(fs.protocol.preds, r"{}/{}".format(cfg.model.new_folder, varname))
                             varname = f"{varname_start}_thresholds"
                             torch.save(fs.protocol.hist_sinr_th, r"{}/{}".format(cfg.model.new_folder, varname))
+                            varname = f"{varname_start}_rates"
+                            torch.save(fs.protocol.hist_rate, r"{}/{}".format(cfg.model.new_folder, varname))
                             varname = f"{varname_start}_final_erasures"
                             torch.save(fs.protocol.erasures_vecs, r"{}/{}".format(cfg.model.new_folder, varname))
                             varname = f"{varname_start}_Dmax"
@@ -204,11 +211,13 @@ def create_folder_and_save_fig(cfg):
         print(folder)
 
         # Save Default Config:
-        for key, value in cfg.__dict__.items():
-            print(f"{key}: {value}")
-        print("done")
+        fout = f"{folder}/default_config_file.txt"
+        fo = open(fout, "w")
+        for k, v in CFG.items():
+            fo.write(str(k) + '\n' + str(v) + '\n\n')
+        fo.close()
 
-        # Save Config:
+        # Save Overwritten Config:
         stdoutOrigin = sys.stdout
         sys.stdout = open(f"{cfg.model.new_folder}/log_config.txt", "w")
         print(f"RTT={cfg.protocol.rtt}")

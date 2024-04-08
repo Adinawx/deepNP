@@ -35,7 +35,8 @@ CFG = {
         "all_plt_ind": [0, 10, -1],  # [ind] Print a fig for each all_plt_ind time-step prediction.
         "ge_param": [0, 1, 0.01, 0.3],  # For the binary case, Gilbert Eliot Parameters: epsG, epsB, pB2G, eps
         "lam": 2,  # Lambda for the SINR loss function
-        "interactive_plot_flag": False
+        "interactive_plot_flag": False,
+        "smooth_factor": 2  # Smooth factor for the rate function
     },
 
     "protocol": {

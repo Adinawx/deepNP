@@ -24,7 +24,7 @@ class EstBlock(nn.Module):
 # The DNN consists of rtt blocks, each contains an lstm layer followed by fc layer and sigmoid activation.
 # The first block's input size is the memory_size, the others are memory_size+1 as they get the output of the previos layer.
 class DeepNp(nn.Module):
-    def __init__(self, input_size, hidden_size, rtt, future, device):
+    def __init__(self, input_size, hidden_size, rtt, future, memory_size, device):
         super(DeepNp, self).__init__()
 
         self.rtt = rtt
@@ -39,44 +39,78 @@ class DeepNp(nn.Module):
                              device=device)
             self.BlockList.append(block)
 
-    def forward(self, x_sinr, th_vec):
+        self.th_fc = torch.nn.Linear(in_features=memory_size+rtt,
+                                     out_features=1,
+                                     bias=True,
+                                     device=self.device)
+    def forward(self, sinr_input, th_input, th_acti=None):
 
-        # x_sinr: [batch_size, mem_size, 1] , 1 is the feature number
-        # th_vec: [batch_size, rtt]
+        ############################ 0. Inputs: ############################
+        # sinr_input: [batch_size, mem_size, features] , feature number is 1
+        # th_input: [batch_size, future] , future is the number of blocks
+        # th_acti: [batch_size, 1] , the threshold value for the first block.
+        # If None, the threshold is calculated by the th_rnn
+        #####################################################################
 
-        # initialize
-        batch_size, mem_size, features = x_sinr.shape
+        ############################ 1. Initialize: ############################
+        batch_size, mem_size, features = sinr_input.shape
+        all_pred = torch.zeros(batch_size, self.future, device=self.device)
 
         max_mem = 500
         mem_vec = torch.zeros(batch_size, max_mem, device=self.device)
 
-        x_sinr = x_sinr.to(self.device)
-        all_pred = torch.zeros(batch_size, self.future, device=self.device)
+        sinr_input = sinr_input.to(self.device)
+        th_input = th_input.to(self.device)
+        th_input_i = None
+        #####################################################################
 
-        # first block
-        out = self.BlockList[0](x_sinr, th_vec[:, 0]).clone()
+        ############################ 2. Run: ################################
+
+        # 1. First Block:
+        out = self.BlockList[0](sinr_input, th_input[:, 0]).clone()
         pred_new = out[:, 0]
         sinr_pred = out[:, 1]
-        all_pred[:, 0] = pred_new
+        all_pred[:, 0] = pred_new  # store the first prediction
 
-        # rest of the blocks
-        for i in range(1, int(self.future)):
+        # 3. Rest of the Blocks:
+        for block_i in range(1, int(self.future)):
 
-            # Append the new prediction to the memory vector
-            if i <= max_mem:
-                mem_vec[:, i - 1] = sinr_pred
-                mem_vec_in = torch.unsqueeze(mem_vec[:, :i], dim=2)
+            ############################ 1. SINR vector: ############################
+            # Append the new prediction to the memory vector,
+            # cut the memory vector at the max_mem size, keep the true input sinr_input
+
+            if block_i <= max_mem:
+                mem_vec[:, block_i - 1] = sinr_pred
+                mem_vec_in = torch.unsqueeze(mem_vec[:, :block_i], dim=2)
             else:
                 mem_vec[:, :-1] = mem_vec[:, 1:].clone()
                 mem_vec[:, -1] = sinr_pred
                 mem_vec_in = torch.unsqueeze(mem_vec, dim=2)
-            input_vec = torch.cat([x_sinr, mem_vec_in], dim=1)
 
+            sinr_input_i = torch.cat([sinr_input, mem_vec_in], dim=1)
+            ##############################################################################
+
+            ############################ 2. Threshold vector: ############################
+            # Get the threshold value from the threshold vector
+
+            if block_i < self.rtt:
+                th_input_i = th_input[:, block_i]
+
+            elif block_i == self.rtt and th_acti is None:
+                th_input_i = self.th_fc(sinr_input_i[:, :, 0])
+
+            elif block_i == self.rtt and th_acti is not None:
+                th_input_i = th_acti.unsqueeze(1)
+
+            ##############################################################################
+
+            ############################ 3. Prediction: ############################
             # Get the new prediction
-            out = self.BlockList[i](input_vec, th_vec[:, i]).clone()
-
+            out = self.BlockList[block_i](sinr_input_i, th_input_i).clone()
             pred_new = out[:, 0]
             sinr_pred = out[:, 1]
-            all_pred[:, i] = pred_new
 
-        return all_pred
+            all_pred[:, block_i] = pred_new
+            ##############################################################################
+
+        return all_pred, th_input_i[:, 0]

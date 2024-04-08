@@ -57,7 +57,7 @@ class PlotAll:
                                 'MODEL_Par_B': '-.',
                                 'MODEL_Par_MB': ':'}
 
-        self.T_cut = self.cfg.protocol.T - min(self.future_values) - 1
+        self.T_cut = self.cfg.protocol.T - max(self.future_values) - 1
 
         self.all_preds = torch.zeros(len(self.rtt_list),
                                      len(self.scenario_list),
@@ -83,7 +83,7 @@ class PlotAll:
                                      len(self.loss_list),
                                      self.cfg.protocol.rep,
                                      self.T_cut,
-                                     2)  # Final Erasures, Thresholds
+                                     3)  # Final Erasures, Thresholds, Rates
 
     def run(self):
 
@@ -92,7 +92,7 @@ class PlotAll:
         self.gini_folder = self.cfg.model.eval_folder
         self.stat_folder = self.cfg.model.eval_folder
 
-        self.rtt_list = [10, 20, 30, 40, 50]
+        self.rtt_list = [10, 20, 30]
         self.scenario_list = ['SLOW']  # 'SLOW', 'MID', 'FAST'
         self.pred_list = ['GINI', 'STAT']
         self.model_list = ['Par']
@@ -107,7 +107,8 @@ class PlotAll:
         self.plot_channel_rate_mse()
         self.plot_future_acc(rtt=self.rtt_list[-1])
         self.plot_d_tau()
-        self.overall_rate()
+        self.plot_d_tau_rate()
+        self.plot_overall_rate()
 
         print("Done")
 
@@ -149,6 +150,8 @@ class PlotAll:
             folder + f'/{name}_final_erasures')[:, :self.T_cut]
         self.all_rates[rtt_idx, scenario_idx, pred_idx, model_idx, loss_idx, :, :, 1] = torch.load(
             folder + f'/{name}_thresholds')[:, :self.T_cut]
+        self.all_rates[rtt_idx, scenario_idx, pred_idx, model_idx, loss_idx, :, :, 2] = torch.load(
+            folder + f'/{name}_rates')[:, :self.T_cut]
 
         self.all_prots[rtt_idx, scenario_idx, pred_idx, model_idx, loss_idx, :, 0] = torch.load(
             folder + f'/{name}_Dmax')
@@ -156,8 +159,6 @@ class PlotAll:
             folder + f'/{name}_Dmean')
         self.all_prots[rtt_idx, scenario_idx, pred_idx, model_idx, loss_idx, :, 2] = torch.load(
             folder + f'/{name}_Tau')
-        # torch.mean(
-        #     self.all_rates[rtt_idx, scenario_idx, pred_idx, model_idx, loss_idx, :, :, 0])
 
     def load_all_results(self):
 
@@ -367,18 +368,21 @@ class PlotAll:
                                 marker=self.marker_list[f'{pred}'])
 
             axs[0].set_title(f'Dmax for {scenario}')
+            axs[0].set_xlabel('RTT [Time Steps]')
             axs[0].legend()
             axs[0].grid()
             axs[0].tick_params(axis='both', which='major', labelsize=15)
             axs[2].set_ylim([0, 200])
 
             axs[1].set_title(f'Dmean for {scenario}')
+            axs[1].set_xlabel('RTT [Time Steps]')
             axs[1].legend()
             axs[1].grid()
             axs[1].tick_params(axis='both', which='major', labelsize=15)
             axs[2].set_ylim([0, 40])
 
             axs[2].set_title(f'Throughput for {scenario}')
+            axs[2].set_xlabel('RTT [Time Steps]')
             axs[2].legend()
             axs[2].grid()
             axs[2].tick_params(axis='both', which='major', labelsize=15)
@@ -392,7 +396,98 @@ class PlotAll:
 
         print("Done")
 
-    def overall_rate(self):
+    def plot_d_tau_rate(self):
+        if self.cfg.data.plt_flag:
+            mpl.use("TkAgg")
+            print("Interactive Plot")
+        else:
+            mpl.use('Agg')
+            print('Plot model and save figs...')
+
+        tau = self.all_prots[:, :, :, :, :, :, 2]
+        rates = torch.mean(self.all_rates[:, :, :, :, :, :, :, 2], dim=-1)
+        tau_rate = tau * rates
+
+        for scenario_idx, scenario in enumerate(self.scenario_list):
+
+            fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+            for pred_idx, pred in enumerate(self.pred_list):
+
+                if pred == 'MODEL':
+                    for model_idx, model in enumerate(self.model_list):
+                        for loss_idx, loss in enumerate(self.loss_list):
+                            Dmax_mean = torch.mean(self.all_prots[:, scenario_idx, pred_idx, model_idx, loss_idx, :, 0],
+                                                   dim=-1)
+                            Dmean_mean = torch.mean(
+                                self.all_prots[:, scenario_idx, pred_idx, model_idx, loss_idx, :, 1], dim=-1)
+                            Tau_mean = torch.mean(tau_rate[:, scenario_idx, pred_idx, model_idx, loss_idx, :],
+                                                  dim=-1)
+
+                            axs[0].plot(self.rtt_list, Dmax_mean,
+                                        label=f'{pred}_{model}_{loss}',
+                                        color=self.color_list[f'{pred}_{model}_{loss}'],
+                                        marker=self.marker_list[f'{pred}_{model}_{loss}'])
+
+                            axs[1].plot(self.rtt_list, Dmean_mean,
+                                        label=f'{pred}_{model}_{loss}',
+                                        color=self.color_list[f'{pred}_{model}_{loss}'],
+                                        marker=self.marker_list[f'{pred}_{model}_{loss}'])
+
+                            axs[2].plot(self.rtt_list, Tau_mean,
+                                        label=f'{pred}_{model}_{loss}',
+                                        color=self.color_list[f'{pred}_{model}_{loss}'],
+                                        marker=self.marker_list[f'{pred}_{model}_{loss}'])
+                else:
+                    Dmax_mean = torch.mean(self.all_prots[:, scenario_idx, pred_idx, 0, 0, :, 0], dim=-1)
+                    Dmean_mean = torch.mean(self.all_prots[:, scenario_idx, pred_idx, 0, 0, :, 1], dim=-1)
+                    Tau_mean = torch.mean(tau_rate[:, scenario_idx, pred_idx, 0, 0, :], dim=-1)
+
+                    axs[0].plot(self.rtt_list, Dmax_mean,
+                                label=f'{pred}',
+                                color=self.color_list[f'{pred}'],
+                                marker=self.marker_list[f'{pred}'])
+
+                    axs[1].plot(self.rtt_list, Dmean_mean,
+                                label=f'{pred}',
+                                color=self.color_list[f'{pred}'],
+                                marker=self.marker_list[f'{pred}'])
+
+                    axs[2].plot(self.rtt_list, Tau_mean,
+                                label=f'{pred}',
+                                color=self.color_list[f'{pred}'],
+                                marker=self.marker_list[f'{pred}'])
+
+            axs[0].set_title(f'Dmax for {scenario}')
+            axs[0].set_xlabel('RTT [Time Steps]')
+            axs[0].legend()
+            axs[0].grid()
+            axs[0].tick_params(axis='both', which='major', labelsize=15)
+            axs[2].set_ylim([0, 200])
+
+            axs[1].set_title(f'Dmean for {scenario}')
+            axs[1].set_xlabel('RTT [Time Steps]')
+            axs[1].legend()
+            axs[1].grid()
+            axs[1].tick_params(axis='both', which='major', labelsize=15)
+            axs[2].set_ylim([0, 40])
+
+            axs[2].set_title(f'Throughput-R for {scenario}')
+            axs[2].set_xlabel('RTT [Time Steps]')
+            axs[2].legend()
+            axs[2].grid()
+            axs[2].tick_params(axis='both', which='major', labelsize=15)
+            axs[2].set_ylim([0, 0.51])
+
+            if not self.cfg.data.plt_flag:
+                fig.savefig(f'{self.cfg.model.new_folder}/figs/d_tau_rate_{scenario}')
+                plt.close()
+            else:
+                plt.show()
+
+        print("Done")
+
+    def plot_overall_rate(self):
 
         if self.cfg.data.plt_flag:
             mpl.use("TkAgg")
@@ -404,7 +499,6 @@ class PlotAll:
         # sinr to rate:
         rates = Rates(self.cfg)
         rate_phy_soft = rates.rate_smooth(self.all_rates[:, :, :, :, :, :, :, 1]).cpu()
-        # rate_phy_hard = rates.rate_hard(self.all_rates[:, :, :, :, :, :, :, 1]).cpu()
 
         fig, axs = plt.subplots(1, 3, figsize=(15, 5))
 

@@ -28,6 +28,7 @@ class ProtocolBase(Data):
         self.preds = torch.zeros([rep, T, future])
         self.true_erasures = torch.zeros([rep, T, future])
         self.hist_sinr_th = torch.zeros([rep, T])
+        self.hist_rate = torch.zeros([rep, T])
         self.rep_seq = torch.zeros([rep])
 
     def run(self, r_plt=0):
@@ -81,6 +82,7 @@ class ProtocolBase(Data):
             cur_sinr_vec = self.sinr_vecs[r, :]
             sinr_th = self.cfg.data.sinr_threshold_list[0] * torch.ones(future)
             self.hist_sinr_th[r, :rtt] = self.cfg.data.sinr_threshold_list[0] * torch.ones(rtt)
+            self.hist_rate[r, :rtt] = self.cfg.data.rate_list[0] * torch.ones(rtt)
             th = self.cfg.data.sinr_threshold_list[0]
 
             # System reset
@@ -112,6 +114,7 @@ class ProtocolBase(Data):
                         if t % th_update == 0:
                             th = self.get_th(fb)
                         self.hist_sinr_th[r, t] = th  # Log
+                        self.hist_rate[r, t] = Rates(self.cfg).rate_hard(torch.tensor(th))
 
                         # update the next erasure according to the current threshold:
                         # packet ct is erased according to the erasures_vecs[t], which is determined by the snr at time t-rtt/2 + 1.

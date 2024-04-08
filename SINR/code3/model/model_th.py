@@ -20,6 +20,7 @@ class ModelTH(ModelBase):
         self.model = DeepNp_th(input_size=1,
                                hidden_size=hidden_size,
                                rtt=self.cfg.protocol.rtt,  # for dnn_th
+                               memory_size=self.cfg.data.memory_size,
                                future=future,
                                device=self.device)
 
@@ -55,6 +56,7 @@ class ModelTH(ModelBase):
 
     def train_th(self):
         print("Train...")
+
         # Inputs
         epochs = self.cfg.train.epochs
         lam = self.cfg.model.lam
@@ -94,28 +96,34 @@ class ModelTH(ModelBase):
                 X, y = self.train_data[t]
                 X = X.to(self.device)
                 y = y.to(self.device)
-
                 self.optimizer.zero_grad()
 
                 # threshold update every th_update time-steps
                 if t % th_update == 0:
-                    # th = self.th_rnn(X)[1][0, :, 0]
-                    th = self.th_fc(X[:, :, 0])[:, 0]
+                    th = None
+
+                # Prediction
+                # Debug
+                if t == 90 :
+                    a = 5
+
+                pred, th = self.model(X, th_vec.unsqueeze(2), th)
+                if th[1].isnan().any():
+                    a = 4
 
                 # Update the threshold vector
                 th_vec[:, :-1] = th_vec[:, 1:]
                 th_vec[:, -1] = th.detach()
-
-                # Binary (Erasure Probability)
                 y_bin = (y > th_vec).float()
-
-                # Prediction
-                pred = self.model(X, th_vec.unsqueeze(2))
 
                 # Loss
                 th_price = torch.mean(rates.rate_smooth(th) * torch.mean(pred)) / max_rate  # mean on all "batches"
                 pred_loss = self.loss_fn(pred, y_bin, self.device, lam)
                 loss = pred_loss - alpha * th_price
+
+                # Debug
+                if loss.isnan().any():
+                    a=5
 
                 # Backward
                 loss.backward(retain_graph=True)

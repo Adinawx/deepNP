@@ -10,9 +10,11 @@ class Rates:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.rates = torch.tensor(self.cfg.data.rate_list, device=self.device)
         self.th_list = torch.tensor(self.cfg.data.sinr_threshold_list, device=self.device)
+        self.b = self.cfg.model.smooth_factor
 
-    @staticmethod
-    def core_smooth_fn(x, a, b=3):
+    def core_smooth_fn(self, x, a, b=None):
+        if b is None:
+            b = self.b
         f = 0.5 + 0.5 * torch.tanh((x - a) / b)
         return f
 
@@ -62,7 +64,7 @@ class Rates:
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8))
         ax1.plot(sinr_vec, rate_vec, label='Smooth Rate')
         ax1.plot(sinr_vec, hard_rate_vec, label='Hard Rate')
-        ax1.set_title(f'Rate vs SINR, b=0.05')
+        ax1.set_title(f'Rate vs SINR, b={self.b}')
         ax1.set_xlabel('SINR')
         ax1.set_ylabel('Rate')
         ax1.grid(True)
@@ -74,7 +76,7 @@ class Rates:
         ax2.set_title('Derivative of smooth_rate')
         ax2.grid(True)
 
-        mpl.rcParams['lines.linewidth'] = 50
+        mpl.rcParams['lines.linewidth'] = 2
         plt.tight_layout()
         plt.show()
 

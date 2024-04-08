@@ -13,15 +13,15 @@ def loss_fn_M_B(y_pred, y, device, lam=1):
 # Mean Errors
 def loss_fn_M(y_pred, y, device, lam=1):
     batch_size, future = y.shape
-    loss1 = torch.linalg.vector_norm(y - y_pred, dim=1) #** 2
-    # loss2 = torch.zeros(batch_size, device=device)
-    # for i in range(future):
-    #     wi = np.log(future - i + 1) #/np.log(future + 1)
-    #     p = y[:, i]
-    #     q = y_pred[:, i] + 1e-8
-    #     loss2 += lam * wi * (-(p * torch.log2(q)) - ((1 - p) * torch.log2(1 - q)))
-    # loss = torch.mean(loss1 + loss2)
-    loss = torch.mean(loss1)
+    loss1 = torch.linalg.vector_norm(y - y_pred, dim=1)
+    loss2 = torch.zeros(batch_size, device=device)
+    for i in range(future):
+        wi = np.log(future - i + 1)
+        p = y[:, i]
+        q = y_pred[:, i] + 1e-8
+        loss2 += lam * wi * (-(p * torch.log2(q)) - ((1 - p) * torch.log2(1 - q)))
+    loss = torch.mean(loss1 + loss2)
+
     return loss
 
 
