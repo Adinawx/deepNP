@@ -92,7 +92,7 @@ class PlotAll:
         self.gini_folder = self.cfg.model.eval_folder
         self.stat_folder = self.cfg.model.eval_folder
 
-        self.rtt_list = [10, 20, 30]
+        self.rtt_list = [10, 20, 30, 40, 50]
         self.scenario_list = ['SLOW']  # 'SLOW', 'MID', 'FAST'
         self.pred_list = ['GINI', 'STAT']
         self.model_list = ['Par']

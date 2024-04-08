@@ -20,10 +20,10 @@ def run():
     eval_foldername = "protocol_run"  # Models' foldername For Plot and Test.
     new_foldername = "protocol_run"  # Must change for each run
 
-    rtt_list = [10]  # [time-steps]
+    rtt_list = [10, 20, 30, 40, 50]  # [time-steps]
     scenario_list = ['slow']  # 'slow', 'mid', 'fast'
     pred_type_list = ['gini', 'stat']  # 'gini', 'stat', 'model'
-    model_type_list = ['TH']  # 'TH', 'Par', 'Bin'
+    model_type_list = ['Par']  # 'TH', 'Par', 'Bin'
     loss_type_list = ['M']  # M, B, MB
 
     print_out_flag = True  # False=Print to file, True=to console
