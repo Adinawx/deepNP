@@ -6,11 +6,11 @@ CFG = {
 
     "data": {
         "folder": r"/home/adina/research/ac_dnp/SINR/SINR_Mats/scenario_fast/",  # Run using these SINR
-        "max_rep": 10,  # affect training data size
-        "future": 15,  # [time-steps]
+        "max_rep": 60,  # Number of files for training
+        "future": 10,  # [time-steps]
         "memory_size": 30,  # [time-steps]
-        "sinr_threshold_list": [5],  # [dB]
-        "rate_list": [0.5, 5 / 8, 3 / 4, 13 / 16],  # [Mbps]
+        "sinr_threshold_list": [5, 10, 15],  # [dB]
+        "rate_list": [0.5, 5 / 8, 3 / 4, 13 / 16],  # Should be one more than sinr_threshold_list
         "plt_flag": False,  # [bool], interactive_plot_flag
         "zoom_1": 50,
         "zoom_2": 150,
@@ -24,7 +24,7 @@ CFG = {
     },
 
     "model_base": {
-        "model_type": "TH",  # TH, Par
+        "model_type": "Par",  # TH, Par
         "loss_type": "M",  # M, B, M_B
         "type": "SINR",  # SINR, binarySINR
         "results_folder": r"/home/adina/research/ac_dnp/SINR/",  # Save trained model_base to this place
@@ -36,16 +36,16 @@ CFG = {
         "ge_param": [0, 1, 0.01, 0.3],  # For the binary case, Gilbert Eliot Parameters: epsG, epsB, pB2G, eps
         "lam": 2,  # Lambda for the SINR loss function
         "interactive_plot_flag": False,
-        "smooth_factor": 2  # Smooth factor for the rate function
+        "smooth_factor": 0.7  # Smooth factor for the rate function
     },
 
     "protocol": {
-        "pred_type": "gini",  # gini, stat, model_og, model_b, model_og_b
+        "pred_type": "gini",  # gini, stat, model
         "rep": 75,  # Repetitions number. Must be <= than sinr's number of files.
         "T": 2500,  # Must be < each sinr's length
         "rtt": 10,
-        "th": 0,  # retranmission threshold
-        "protocol_print_flag": True,
+        "th": 0,  # For the re-tranmission threshold
+        "protocol_print_flag": True,  # Protocol log print flag
         "interactive_plot_flag": False
     },
 }

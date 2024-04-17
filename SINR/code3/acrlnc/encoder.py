@@ -1,5 +1,6 @@
 import torch
 
+
 class Encoder:
 
     def __init__(self):
@@ -123,8 +124,6 @@ class Encoder:
         criterion = False
         win_fec_size = int(self.RTT)
         if self.t == 0:
-            # eps1 = self.get_pred_1()
-            # self.fec_num = eps1 * self.RTT
             self.fec_flag = 1
 
         if 0 <= self.t < self.T:
@@ -133,47 +132,28 @@ class Encoder:
             md, ad = self.get_md_ad()
             c_t_new, c_t_same = self.get_ct_new_same()
             eps0 = self.get_pred_0()
-            # eps1 = self.get_pred_1()
 
             if self.t % win_fec_size == 0:  # end of generation, start fec transmission
-                self.fec_num = c_t_new * eps0
-                if self.fec_num - 1 < 0:
+                self.fec_num = (self.RTT-1) * eps0
+                if self.fec_num - 1 < 0:  # Force at least one fec:
                     self.fec_num += 1
-                self.fec_flag = 0
+                self.fec_flag = 0  # 0 is fec transmission, 1 is no fec transmission
+                # self.fec_flag = 1  # Terminate fec transmission
 
-            if self.t == 1500:
+            # debug
+            if self.t == 370:
                 a=5
 
             # print(f"flag: {self.fec_flag}, fec num: {self.fec_num}")
-            numer = md + eps0 * c_t_new
-            denom = ad + (1 - eps0) * c_t_same + 0.1 #+ eps1 # + torch.round(1-eps0 + 1e-14)  #+ self.fec_num  #+  torch.round(1-eps0)  # * (1-self.fec_flag)
+            miss = torch.round(md + eps0 * c_t_new, decimals=4)  # round after 4 digits to prevent numerical problems.
+            add = torch.round(ad + (1 - eps0) * c_t_same, decimals=4)
+            delta_t = (miss - add) - self.th
 
-            delta_t = (numer/denom) - 1 - self.th
-            if delta_t >= 900:
-                a=5
+            # debug
             if torch.isnan(delta_t):
                 a=5
-            criterion = (delta_t.detach() > 0)
 
-            # #####################################
-            # # TRY:
-            # # if self.last_relev_slot <= self.t - self.RTT:
-            # #     t_minus = 0  #self.t - self.RTT
-            # # else:
-            # #     t_minus = self.last_relev_slot - self.t
-            # # eps0 = torch.mean(1 - self.pred[0, -t_minus:])
-            #
-            # miss = md + eps0 * c_t_new
-            # add = ad + (1 - eps0) * c_t_same
-            #
-            # delta_t = (miss - add) + self.th
-            #
-            # # debug:
-            # if torch.isnan(delta_t):
-            #     a=5
-            #
-            # criterion = (delta_t.detach() >= 0)
-            # #####################################
+            criterion = (delta_t.detach() > 0)
 
             if self.fec_flag == 0 and self.fec_num.detach() - 1 >= 0:  # fec transmission
                 self.fec_print = True

@@ -10,7 +10,7 @@ from full_system.rates import Rates
 class ProtocolBase(Data):
     def __init__(self, cfg):
         super().__init__(cfg)
-        self.erasures_vecs = None
+        self.final_erasures_vecs = None
         self.sinr_vecs = None
 
         rep = self.cfg.protocol.rep
@@ -26,10 +26,11 @@ class ProtocolBase(Data):
         self.tau = torch.zeros([rep])
         self.channel_rates = torch.zeros([rep])
         self.preds = torch.zeros([rep, T, future])
-        self.true_erasures = torch.zeros([rep, T, future])
+        self.true_erasure_pred = torch.zeros([rep, T, future])
         self.hist_sinr_th = torch.zeros([rep, T])
         self.hist_rate = torch.zeros([rep, T])
         self.rep_seq = torch.zeros([rep])
+        self.final_erasures_vecs = None
 
     def run(self, r_plt=0):
 
@@ -44,17 +45,16 @@ class ProtocolBase(Data):
         self.plot_sinr_th(r_plt)
 
         self.plot_future(r_plt, f=0)
-        self.plot_future(r_plt, f=int(self.cfg.protocol.rtt/2))
+        self.plot_future(r_plt, f=int(self.cfg.protocol.rtt / 2))
         self.plot_future(r_plt, f=-1)
 
     def load_data_protocol(self):
 
         self.load_data()
-
         # determine the number of repetitions
         rep = self.cfg.protocol.rep
-        self.erasures_vecs = self.test_bin[:rep, :]
-        self.sinr_vecs = self.test_sinr[:rep, :]
+        self.sinr_vecs = self.val_sinr[:rep, :]
+        self.final_erasures_vecs = torch.zeros_like(self.sinr_vecs)
 
     def protocol_run(self, rep_seq=None):
         # Load Inputs
@@ -67,6 +67,7 @@ class ProtocolBase(Data):
         th_prot = self.cfg.protocol.th
         th_update = self.cfg.data.future - self.cfg.protocol.rtt
         log_file = r"{}/log_protocol.txt".format(self.cfg.model.new_folder)
+        rates = Rates(self.cfg)
 
         if rep_seq == None:
             rep_seq = range(rep)
@@ -78,14 +79,18 @@ class ProtocolBase(Data):
                 print(f"---------- Rep {r + 1} ----------", file=f)
 
             # Load current Erasures vec:
-            cur_erasure_vec = self.erasures_vecs[r, :]
-            cur_sinr_vec = self.sinr_vecs[r, :]
-            sinr_th = self.cfg.data.sinr_threshold_list[0] * torch.ones(future)
+            cur_sinr = self.sinr_vecs[r, :]
+            sinr_th_input = self.cfg.data.sinr_threshold_list[0] * torch.ones(rtt)
+            th = torch.zeros(1) + self.cfg.data.sinr_threshold_list[0]
+
             self.hist_sinr_th[r, :rtt] = self.cfg.data.sinr_threshold_list[0] * torch.ones(rtt)
             self.hist_rate[r, :rtt] = self.cfg.data.rate_list[0] * torch.ones(rtt)
-            th = self.cfg.data.sinr_threshold_list[0]
+
+            self.final_erasures_vecs[r, :int(rtt/2)] = (cur_sinr[:int(rtt/2)] > th).float()
 
             # System reset
+            # Packet Ct erasure is determined by the sinr series at index (t + RTT/2).
+            cur_erasure_vec = (cur_sinr[int(rtt/2):] > th).float()
             sys_pro.reset(T=T, forward_tt=int(rtt / 2), backward_tt=int(rtt / 2),
                           erasure_series=cur_erasure_vec, print_flag=protocol_print_flag, th=th_prot)
 
@@ -95,66 +100,58 @@ class ProtocolBase(Data):
 
                 erasure_pred = torch.zeros(1, future)  # Initialize the prediction vector
 
-                if t >= rtt:  # Enough FB arrives for prediction
+                if t >= int(rtt/2):  # FB arrives
 
                     ###################################### Read SINR FB ######################################
-                    # Packet Ct erasure determined by the sinr series at time (t + RTT/2)
+                    # Packet Ct erasure is determined by the sinr series at index (t + RTT/2).
+                    # Read the sinr feedback from the receiver in a delay of rtt/2:
                     ind_start_fb = max(0, t - int(rtt / 2) - memory_size)  # start of the feedback window, with a max of memory_size
-                    ind_end_fb = t - int(rtt / 2) + 1   # end of the feedback window
-                    fb = cur_sinr_vec[ind_start_fb: ind_end_fb]
-
-                    # ind_start_fb = max(0, t - rtt - memory_size)  # start of the feedback window, with a max of memory_size
-                    # ind_end_fb = t - rtt + 1   # end of the feedback window
-                    # fb = cur_sinr_vec[ind_start_fb: ind_end_fb]
-                    ############################################################################################
-
-                    ###################################### Threshold decision ##################################
-                    # Get a new threshold every th_update time-steps
-                    if th_update != 0:
-                        if t % th_update == 0:
-                            th = self.get_th(fb)
-                        self.hist_sinr_th[r, t] = th  # Log
-                        self.hist_rate[r, t] = Rates(self.cfg).rate_hard(torch.tensor(th))
-
-                        # update the next erasure according to the current threshold:
-                        # packet ct is erased according to the erasures_vecs[t], which is determined by the snr at time t-rtt/2 + 1.
-                        self.erasures_vecs[r, t] = self.sinr2erasure(cur_sinr_vec[ind_end_fb], th)
+                    ind_end_fb = t - int(rtt / 2) + 1 # end of the feedback window
+                    fb = cur_sinr[ind_start_fb: ind_end_fb]
                     ############################################################################################
 
                     ##################################### Erasure prediction ####################################
                     # Update the threshold input vector with the current threshold
-                    sinr_th[:-1] = sinr_th[1:].clone()
-                    sinr_th[-1] = th
+                    sinr_th_input[:-1] = sinr_th_input[1:].clone()
+                    sinr_th_input[-1] = th
 
-                    # Predict success Probability for the <future> time-steps from [t-RTT+1] to [t+th_update]
-                    erasure_pred = self.get_pred(fb, sinr_th, t=t, cur_erasure_vec=self.erasures_vecs[r, :], th=th)
-                    self.preds[r, t-rtt, :] = erasure_pred  # Log
+                    if th_update != 0 and t % th_update == 0 and t >= rtt + memory_size:
+                        th = None
 
-                    # Log true predictions with the updated threshold
-                    self.true_erasures[r, t-rtt, :] = self.erasures_vecs[r, t-rtt: t + (future - rtt)]
+                    # Predict success probability for the <future> time-steps from [t-RTT+1] to [t+th_update]
+                    erasure_pred, th = self.get_pred(fb, sinr_th_input, t=t, cur_erasure_vec=cur_sinr, th=th)  # gets sinr input
+                    self.preds[r, t-int(rtt/2), :] = erasure_pred  # Log
+                    self.hist_sinr_th[r, t] = th  # Log
+                    self.final_erasures_vecs[r, t] = (cur_sinr[t] > th).float()  # Log
+
+                    # Update the receiver with the current erasure
+                    sys_pro.erasure_series[t-int(rtt/2)] = self.final_erasures_vecs[r, t]
                     ############################################################################################
 
                 ##################################### Protocol Step #######################################
-                # Update the receiver with the current erasure
-                sys_pro.erasure_series[t] = self.erasures_vecs[r, t]
                 # acrlnc step
                 sys_pro.set_pred(erasure_pred)
                 delta_t, self.transmission_log[r, t, :] = sys_pro.protocol_step()
                 ############################################################################################
+
+            self.hist_rate[r, :] = rates.rate_hard(self.hist_sinr_th[r, :])  # Log
+            # Log true predictions with the updated threshold
+            for t in range(T-int(rtt/2)):
+                self.true_erasure_pred[r, t, :] = self.final_erasures_vecs[r, t: t + future]
 
             # Print end of Transmission
             end = time.time()
             with open(log_file, 'a') as f:
                 print(f"Time: {end - start :.3f}\n", file=f)
 
-            self.burst_ave_len[r], self.burst_max_len[r], _ = self.analyze_erasure_vec(self.erasures_vecs[r, :T])
+            self.burst_ave_len[r], self.burst_max_len[r], _ = self.analyze_erasure_vec(self.final_erasures_vecs[r, :T])
             if sys_pro.dec.dec_ind > 0:
                 delay = sys_pro.get_delay()
                 self.d_max[r] = torch.max(delay)
                 self.d_mean[r] = torch.mean(delay)
                 M = sys_pro.get_M()
                 self.tau[r] = M / (T - int(rtt / 2))
-                self.channel_rates[r] = torch.mean(self.erasures_vecs[r, :T])
+                self.channel_rates[r] = torch.mean(self.final_erasures_vecs[r, :T])
 
                 with open(log_file, 'a') as f:
                     print(f"dmax={self.d_max[r]}", file=f)
@@ -166,12 +163,11 @@ class ProtocolBase(Data):
                     print(f"tau={self.tau[r]:.4f}", file=f)
                     print(f"channel rate: {self.channel_rates[r]:.4f}", file=f)
                     print(f"tau/CR={self.tau[r] / self.channel_rates[r]:.4f}", file=f)
-                    print(f"erasures number: {sum(1 - self.erasures_vecs[r, :T])}", file=f)
+                    print(f"erasures number: {sum(1 - self.final_erasures_vecs[r, :T])}", file=f)
             else:
-
                 with open(log_file, 'a') as f:
                     print("Nothing Decodes", file=f)
-                    print(f"erasures number: {sum(1 - self.erasures_vecs[r, :T])}", file=f)
+                    print(f"erasures number: {sum(1 - self.final_erasures_vecs[r, :T])}", file=f)
 
         print("Protocol Run Finished")
 
@@ -180,6 +176,7 @@ class ProtocolBase(Data):
         std_Dmax, mean_Dmax = torch.std_mean(self.d_max)
         std_Dmean, mean_Dmean = torch.std_mean(self.d_mean)
         std_tau, mean_tau = torch.std_mean(self.tau)
+        std_tau_rate, mean_tau_rate = torch.std_mean(self.tau * torch.mean(self.hist_rate, dim=-1))
         std_cr, mean_cr = torch.std_mean(self.channel_rates)
         std_burst_max_len, mean_burst_max_len = torch.std_mean(self.burst_max_len)
         std_burst_ave_len, mean_burst_ave_len = torch.std_mean(self.burst_ave_len)
@@ -195,9 +192,11 @@ class ProtocolBase(Data):
 
             print(f"Throughput: {mean_tau:.2f} +- {std_tau:.2f}", file=f)
             print(f"Channel rate: {mean_cr:.2f} +- {std_cr:.2f}\n", file=f)
+            print(f"Throughput and Rate: {mean_tau_rate:.2f} +- {std_tau_rate:.2f}", file=f)
 
             print(
-                f"Tau/CR: {torch.mean(self.tau / self.channel_rates):.2f} +- {torch.std(self.tau / self.channel_rates):.2f}", file=f)
+                f"Tau/CR: {torch.mean(self.tau / self.channel_rates):.2f} +- {torch.std(self.tau / self.channel_rates):.2f}",
+                file=f)
             print(f"Dmean: {mean_Dmean:.2f} +- {std_Dmean:.2f}", file=f)
             print(f"Dmax: {mean_Dmax:.2f} +- {std_Dmax:.2f}\n", file=f)
 
@@ -215,7 +214,7 @@ class ProtocolBase(Data):
         T = self.cfg.protocol.T
         ind_start, ind_end = self.cfg.model.ind_plt_zoom
         delta = self.transmission_log[r_plt, :, 7]
-        erasures = self.erasures_vecs[r_plt, :T]
+        erasures = self.final_erasures_vecs[r_plt, :T]
 
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 8))
         ax1.plot(delta, label='delta', marker='o')
@@ -279,21 +278,22 @@ class ProtocolBase(Data):
         ind_start, ind_end = self.cfg.model.ind_plt_zoom
         rtt = self.cfg.protocol.rtt
         T = self.cfg.protocol.T
+        future = self.cfg.data.future
 
-        cr_true = torch.sum(self.true_erasures[r_plt, :T-(rtt+1), :], dim=1)
-        cr_pred = torch.sum(self.preds[r_plt, :T-(rtt+1), :].detach(), dim=-1)
+        cr_pred = torch.sum(self.preds[r_plt, :T - future, :].detach(), dim=-1)
+        cr_true = torch.sum(self.true_erasure_pred[r_plt, :T - future, :], dim=1)
         mse = torch.mean((cr_pred - cr_true) ** 2)
 
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 8))
-        ax1.plot(range(rtt+1, T), cr_pred, marker='o', label='Pred')
-        ax1.plot(range(rtt+1, T), cr_true, marker='o', label='True')
+        ax1.plot(range(T - future), cr_pred, marker='o', label='Pred')
+        ax1.plot(range(T - future), cr_true, marker='o', label='True')
         ax1.set_ylabel("Channel Rate")
         ax1.set_title(f"Protocol {self.cfg.protocol.pred_type}, ChannelRate,  RTT={rtt}, rep={r_plt}, MSE={mse:.2f}")
         ax1.legend()
         ax1.grid()
         # ZOOM
-        ax2.plot(range(rtt+1+ind_start, rtt+1+ind_end), cr_pred[ind_start:ind_end], marker='o', label='Pred')
-        ax2.plot(range(rtt+1+ind_start, rtt+1+ind_end), cr_true[ind_start:ind_end], marker='o', label='True')
+        ax2.plot(range(ind_start, ind_end), cr_pred[ind_start:ind_end], marker='o', label='Pred')
+        ax2.plot(range(ind_start, ind_end), cr_true[ind_start:ind_end], marker='o', label='True')
         ax2.set_ylabel("Channel Rate")
         ax2.set_title(f"Zoom In")
         ax2.set_xlabel("Time Slots")
@@ -301,7 +301,8 @@ class ProtocolBase(Data):
         ax2.grid()
 
         if not self.cfg.protocol.interactive_plot_flag:
-            fig.savefig(r"{}/figs/ChannelRate_{}_r={}".format(self.cfg.model.new_folder, self.cfg.protocol.pred_type, r_plt))
+            fig.savefig(
+                r"{}/figs/ChannelRate_{}_r={}".format(self.cfg.model.new_folder, self.cfg.protocol.pred_type, r_plt))
             plt.close()
         else:
             plt.show()
@@ -323,20 +324,22 @@ class ProtocolBase(Data):
         if f < 0:
             f = future + f
 
-        true_erasures = torch.round(self.true_erasures[r_plt, :T-(rtt+1), f])
-        pred_erasures = torch.round(self.preds[r_plt, :T-(rtt+1), f].detach())
+        true_erasures = torch.round(self.true_erasure_pred[r_plt, :T - (rtt + 1), f])
+        pred_erasures = torch.round(self.preds[r_plt, :T - (rtt + 1), f].detach())
         ACC = torch.mean((pred_erasures == true_erasures).float())
 
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 8))
-        ax1.plot(range(rtt+1, T), pred_erasures, marker='o', label='Pred')
-        ax1.plot(range(rtt+1, T), true_erasures, marker='o', label='True')
+        ax1.plot(range(rtt + 1, T), pred_erasures, marker='o', label='Pred')
+        ax1.plot(range(rtt + 1, T), true_erasures, marker='o', label='True')
         ax1.set_ylabel("Erasure [1=Success 0=Erasure]")
         ax1.set_title(f"Protocol {self.cfg.protocol.pred_type}, Future,  RTT={rtt}, rep={r_plt}, f={f}, ACC={ACC:.2f}")
         ax1.legend()
         ax1.grid()
         # ZOOM
-        ax2.plot(range(ind_start+f+(rtt+1), ind_end+f+(rtt+1)), pred_erasures[ind_start:ind_end], marker='o', label='Pred')
-        ax2.plot(range(ind_start+f+(rtt+1), ind_end+f+(rtt+1)), true_erasures[ind_start:ind_end], marker='o', label='True')
+        ax2.plot(range(ind_start + f + (rtt + 1), ind_end + f + (rtt + 1)), pred_erasures[ind_start:ind_end],
+                 marker='o', label='Pred')
+        ax2.plot(range(ind_start + f + (rtt + 1), ind_end + f + (rtt + 1)), true_erasures[ind_start:ind_end],
+                 marker='o', label='True')
         ax2.set_ylabel("Erasure [1=Success 0=Erasure]")
         ax2.set_title(f"Zoom In")
         ax2.set_xlabel("Time Slots")
@@ -344,7 +347,8 @@ class ProtocolBase(Data):
         ax2.grid()
 
         if not self.cfg.protocol.interactive_plot_flag:
-            fig.savefig(r"{}/figs/Future={}_{}_r={}".format(self.cfg.model.new_folder, f, self.cfg.protocol.pred_type, r_plt))
+            fig.savefig(
+                r"{}/figs/Future={}_{}_r={}".format(self.cfg.model.new_folder, f, self.cfg.protocol.pred_type, r_plt))
             plt.close()
         else:
             plt.show()
@@ -361,12 +365,12 @@ class ProtocolBase(Data):
         sinr_th_vec = self.hist_sinr_th[r_plt, :]
         # Compute corresponding rate:
         rates = Rates(self.cfg)
-        rate_phy_soft = rates.rate_smooth(sinr_th_vec).cpu()
+        rate_phy_soft = self.hist_rate[r_plt, :]
         rate_phy_hard = rates.rate_hard(sinr_th_vec).cpu()
 
         # Plot
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(15, 8))
-        ax1.plot(self.hist_sinr_th[r_plt, :], marker='o', label='sinr_th')
+        ax1.plot(sinr_th_vec, marker='o', label='sinr_th')
         ax1.set_ylabel("sinr_th [dB]")
         ax1.set_title(f"Sinr_th, r={r_plt}")
         ax1.legend()
@@ -394,10 +398,6 @@ class ProtocolBase(Data):
     @staticmethod
     def get_pred(fb, sinr_th_vec=None, t=None, cur_erasure_vec=None, th=None):
         return None, None
-
-    @staticmethod
-    def get_th(fb):
-        pass
 
     @staticmethod
     def backprop(r=0, t=0, delta_t=None, y_true=None, y_hat=None):
